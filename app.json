@@ -1,5 +1,6 @@
 {
   "expo": {
+    "platforms": ["ios", "android"],
     "name": "My Household",
     "slug": "my-household-app",
     "version": "1.0.0",
@@ -19,6 +20,15 @@
     "plugins": ["expo-router", "expo-font", "expo-web-browser"],
     "experiments": {
       "typedRoutes": true
+    },
+    "android": {
+      "package": "com.robertod.myhouseholdapp"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "25d513d4-acc3-4fa5-b15b-deb574ad0619"
+      }
     }
   }
 }

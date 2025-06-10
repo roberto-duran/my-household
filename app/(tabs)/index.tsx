@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DataProvider, useData } from '@/contexts/DataContext';
+import { DatabaseProvider, useDatabaseLegacy } from '@/contexts/DatabaseContext';
 import Card from '@/components/Card';
 import ProgressBar from '@/components/ProgressBar';
 import { TrendingUp, TrendingDown, DollarSign, Target, CircleAlert as AlertCircle } from 'lucide-react-native';
@@ -13,7 +13,7 @@ function DashboardContent() {
     getTotalMonthlyExpenses, 
     getRemainingBudget, 
     getSavingsProgress 
-  } = useData();
+  } = useDatabaseLegacy();
 
   const totalExpenses = getTotalMonthlyExpenses();
   const remainingBudget = getRemainingBudget();
@@ -99,8 +99,8 @@ function DashboardContent() {
         <Card>
           <Text style={styles.sectionTitle}>Budget Categories</Text>
           {financialData.budgetCategories.map((category) => {
-            const progress = (category.spent / category.limit) * 100;
-            const isOverBudget = category.spent > category.limit;
+            const progress = ((category.spent || 0) / category.limit) * 100;
+            const isOverBudget = (category.spent || 0) > category.limit;
             
             return (
               <View key={category.id} style={styles.categoryItem}>
@@ -146,9 +146,9 @@ function DashboardContent() {
 
 export default function Dashboard() {
   return (
-    <DataProvider>
+    <DatabaseProvider>
       <DashboardContent />
-    </DataProvider>
+    </DatabaseProvider>
   );
 }
 

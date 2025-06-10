@@ -10,12 +10,13 @@ import {
   Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DataProvider, useData, Expense } from '@/contexts/DataContext';
+import { DatabaseProvider, useDatabase } from '@/contexts/DatabaseContext';
+import type { Expense } from '@/db/schema';
 import Card from '@/components/Card';
 import { Plus, CreditCard as Edit3, Trash2, Calendar, CircleCheck as CheckCircle, Circle, Filter } from 'lucide-react-native';
 
 function ExpensesContent() {
-  const { expenses, addExpense, updateExpense, deleteExpense } = useData();
+  const { expenses, addExpense, updateExpense, deleteExpense } = useDatabase();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [filterCategory, setFilterCategory] = useState('All');
@@ -80,7 +81,7 @@ function ExpensesContent() {
       amount: expense.amount.toString(),
       category: expense.category,
       dueDate: expense.dueDate,
-      isRecurring: expense.isRecurring,
+      isRecurring: Boolean(expense.isRecurring),
     });
     setShowAddModal(true);
   };
@@ -279,9 +280,9 @@ function ExpensesContent() {
 
 export default function Expenses() {
   return (
-    <DataProvider>
+    <DatabaseProvider>
       <ExpensesContent />
-    </DataProvider>
+    </DatabaseProvider>
   );
 }
 
