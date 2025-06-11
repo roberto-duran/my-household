@@ -1,6 +1,6 @@
 {
   "expo": {
-    "platforms": ["ios", "android"],
+    "platforms": ["ios", "android", "web"],
     "name": "My Household",
     "slug": "my-household-app",
     "version": "1.0.0",

@@ -10,7 +10,7 @@ import {
   Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DatabaseProvider, useDatabase } from '@/contexts/DatabaseContext';
+import { useDatabase } from '@/contexts/DatabaseContext';
 import type { Expense } from '@/db/schema';
 import Card from '@/components/Card';
 import { Plus, CreditCard as Edit3, Trash2, Calendar, CircleCheck as CheckCircle, Circle, Filter } from 'lucide-react-native';
@@ -279,11 +279,7 @@ function ExpensesContent() {
 }
 
 export default function Expenses() {
-  return (
-    <DatabaseProvider>
-      <ExpensesContent />
-    </DatabaseProvider>
-  );
+  return <ExpensesContent />;
 }
 
 const styles = StyleSheet.create({

@@ -70,6 +70,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const loadData = async () => {
     try {
       setIsLoading(true);
+      
       const [expensesData, categoriesData, listsData, settingsData] = await Promise.all([
         expenseService.getAll(),
         budgetCategoryService.getAll(),
@@ -88,7 +89,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const initDatabase = async () => {
+  const initDbAndLoadData = async () => {
     try {
       await initializeDatabase();
       await seedDatabase();
@@ -99,7 +100,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    initDatabase();
+    initDbAndLoadData();
   }, []);
 
   // Expense methods
@@ -184,14 +185,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const getRemainingBudget = () => {
     if (!financialSettings) return 0;
-    const totalExpenses = expenses
-      .filter(expense => expense.isRecurring)
-      .reduce((sum, expense) => sum + expense.amount, 0);
-    return financialSettings.monthlyIncome - totalExpenses - financialSettings.savingsGoal;
+    const totalSpent = budgetCategories.reduce((sum, cat) => sum + (cat.spent || 0), 0);
+    const totalLimit = budgetCategories.reduce((sum, cat) => sum + cat.limit, 0);
+    return totalLimit - totalSpent;
   };
 
   const getSavingsProgress = () => {
-    if (!financialSettings || financialSettings.savingsGoal === 0) return 0;
+    if (!financialSettings) return 0;
     return ((financialSettings.currentSavings || 0) / financialSettings.savingsGoal) * 100;
   };
 
@@ -199,34 +199,34 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     await loadData();
   };
 
-  const value: DatabaseContextType = {
-    expenses,
-    budgetCategories,
-    groceryLists,
-    financialSettings,
-    isLoading,
-    addExpense,
-    updateExpense,
-    deleteExpense,
-    addBudgetCategory,
-    updateBudgetCategory,
-    deleteBudgetCategory,
-    addGroceryList,
-    updateGroceryList,
-    deleteGroceryList,
-    addGroceryItem,
-    updateGroceryItem,
-    deleteGroceryItem,
-    toggleGroceryItemPurchased,
-    updateFinancialSettings,
-    getTotalMonthlyExpenses,
-    getRemainingBudget,
-    getSavingsProgress,
-    refreshData,
-  };
-
   return (
-    <DatabaseContext.Provider value={value}>
+    <DatabaseContext.Provider
+      value={{
+        expenses,
+        budgetCategories,
+        groceryLists,
+        financialSettings,
+        isLoading,
+        addExpense,
+        updateExpense,
+        deleteExpense,
+        addBudgetCategory,
+        updateBudgetCategory,
+        deleteBudgetCategory,
+        addGroceryList,
+        updateGroceryList,
+        deleteGroceryList,
+        addGroceryItem,
+        updateGroceryItem,
+        deleteGroceryItem,
+        toggleGroceryItemPurchased,
+        updateFinancialSettings,
+        getTotalMonthlyExpenses,
+        getRemainingBudget,
+        getSavingsProgress,
+        refreshData,
+      }}
+    >
       {children}
     </DatabaseContext.Provider>
   );

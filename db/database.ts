@@ -1,89 +1,38 @@
 import { drizzle } from 'drizzle-orm/expo-sqlite';
-import { openDatabaseSync } from 'expo-sqlite';
+import { openDatabaseSync, openDatabaseAsync } from 'expo-sqlite';
+import { migrate } from 'drizzle-orm/expo-sqlite/migrator';
+import { eq } from 'drizzle-orm';
+import { Platform } from 'react-native';
 import * as schema from './schema';
+import migrations from './migrations/migrations';
 
-const expoDb = openDatabaseSync('household.db', { enableChangeListener: true });
+const isWeb = Platform.OS === 'web';
 
-export const db = drizzle(expoDb, { schema });
+let db: ReturnType<typeof drizzle>;
+
+const initDb = async () => {
+  if (db) return db;
+
+  const expoDb = isWeb
+    ? await openDatabaseAsync('household.db')
+    : openDatabaseSync('household.db', { enableChangeListener: true });
+
+  db = drizzle(expoDb, { schema });
+  return db;
+};
+
+export const getDb = async () => {
+  if (!db) {
+    await initDb();
+  }
+  return db;
+};
 
 export const initializeDatabase = async () => {
   try {
-    console.info('Initializing database...');
-
-    // Create tables if they don't exist
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS expenses (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        amount REAL NOT NULL,
-        category TEXT NOT NULL,
-        due_date TEXT NOT NULL,
-        is_paid INTEGER DEFAULT 0,
-        is_recurring INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS budget_categories (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        limit REAL NOT NULL,
-        spent REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS grocery_lists (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        total_cost REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS grocery_items (
-        id TEXT PRIMARY KEY,
-        list_id TEXT,
-        name TEXT NOT NULL,
-        quantity INTEGER NOT NULL,
-        price_per_unit REAL NOT NULL,
-        total_cost REAL NOT NULL,
-        is_purchased INTEGER DEFAULT 0,
-        store_location TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE
-      );
-    `);
-
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS price_history (
-        id TEXT PRIMARY KEY,
-        item_id TEXT,
-        price REAL NOT NULL,
-        date TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (item_id) REFERENCES grocery_items(id) ON DELETE CASCADE
-      );
-    `);
-
-    expoDb.execSync(`
-      CREATE TABLE IF NOT EXISTS financial_settings (
-        id TEXT PRIMARY KEY,
-        monthly_income REAL NOT NULL,
-        savings_goal REAL NOT NULL,
-        current_savings REAL DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
+    console.info('Initializing database with migrations...');
+    const database = await getDb();
+    await migrate(database, migrations);
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -94,23 +43,28 @@ export const initializeDatabase = async () => {
 export const seedDatabase = async () => {
   try {
     console.log('Seeding database...');
+    const database = await getDb();
 
     // Check if financial settings exist
-    const existingSettings = expoDb.getFirstSync(
-      'SELECT * FROM financial_settings'
-    );
-    if (!existingSettings) {
-      expoDb.runSync(`
-        INSERT INTO financial_settings (id, monthly_income, savings_goal, current_savings)
-        VALUES ('default', 4500, 800, 450)
-      `);
+    const existingSettings = await database
+      .select()
+      .from(schema.financialSettings)
+      .limit(1);
+    if (existingSettings.length === 0) {
+      await database.insert(schema.financialSettings).values({
+        id: 'default',
+        monthlyIncome: 4500,
+        savingsGoal: 800,
+        currentSavings: 450,
+      });
     }
 
     // Check if budget categories exist
-    const existingCategories = expoDb.getFirstSync(
-      'SELECT * FROM budget_categories'
-    );
-    if (!existingCategories) {
+    const existingCategories = await database
+      .select()
+      .from(schema.budgetCategories)
+      .limit(1);
+    if (existingCategories.length === 0) {
       const categories = [
         { id: 'housing', name: 'Housing', limit: 1500, spent: 1200 },
         { id: 'utilities', name: 'Utilities', limit: 200, spent: 145 },
@@ -123,29 +77,24 @@ export const seedDatabase = async () => {
         },
       ];
 
-      for (const category of categories) {
-        expoDb.runSync(
-          `
-          INSERT INTO budget_categories (id, name, \`limit\`, spent)
-          VALUES (?, ?, ?, ?)
-        `,
-          [category.id, category.name, category.limit, category.spent]
-        );
-      }
+      await database.insert(schema.budgetCategories).values(categories);
     }
 
     // Check if expenses exist
-    const existingExpenses = expoDb.getFirstSync('SELECT * FROM expenses');
-    if (!existingExpenses) {
-      const expenses = [
+    const existingExpenses = await database
+      .select()
+      .from(schema.expenses)
+      .limit(1);
+    if (existingExpenses.length === 0) {
+      const expensesData = [
         {
           id: '1',
           name: 'Rent',
           amount: 1200,
           category: 'Housing',
           dueDate: '2025-01-01',
-          isPaid: 1,
-          isRecurring: 1,
+          isPaid: true,
+          isRecurring: true,
         },
         {
           id: '2',
@@ -153,8 +102,8 @@ export const seedDatabase = async () => {
           amount: 85,
           category: 'Utilities',
           dueDate: '2025-01-15',
-          isPaid: 0,
-          isRecurring: 1,
+          isPaid: false,
+          isRecurring: true,
         },
         {
           id: '3',
@@ -162,39 +111,27 @@ export const seedDatabase = async () => {
           amount: 60,
           category: 'Utilities',
           dueDate: '2025-01-20',
-          isPaid: 0,
-          isRecurring: 1,
+          isPaid: false,
+          isRecurring: true,
         },
       ];
 
-      for (const expense of expenses) {
-        expoDb.runSync(
-          `
-          INSERT INTO expenses (id, name, amount, category, due_date, is_paid, is_recurring)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `,
-          [
-            expense.id,
-            expense.name,
-            expense.amount,
-            expense.category,
-            expense.dueDate,
-            expense.isPaid,
-            expense.isRecurring,
-          ]
-        );
-      }
+      await database.insert(schema.expenses).values(expensesData);
     }
 
     // Check if grocery lists exist
-    const existingLists = expoDb.getFirstSync('SELECT * FROM grocery_lists');
-    if (!existingLists) {
-      expoDb.runSync(`
-        INSERT INTO grocery_lists (id, name, total_cost)
-        VALUES ('1', 'Weekly Shopping', 127.50)
-      `);
+    const existingLists = await database
+      .select()
+      .from(schema.groceryLists)
+      .limit(1);
+    if (existingLists.length === 0) {
+      await database.insert(schema.groceryLists).values({
+        id: '1',
+        name: 'Weekly Shopping',
+        totalCost: 127.5,
+      });
 
-      const groceryItems = [
+      const groceryItemsData = [
         {
           id: '1',
           listId: '1',
@@ -202,7 +139,7 @@ export const seedDatabase = async () => {
           quantity: 2,
           pricePerUnit: 3.99,
           totalCost: 7.98,
-          isPurchased: 1,
+          isPurchased: true,
           storeLocation: 'Walmart',
         },
         {
@@ -212,38 +149,30 @@ export const seedDatabase = async () => {
           quantity: 1,
           pricePerUnit: 2.49,
           totalCost: 2.49,
-          isPurchased: 0,
+          isPurchased: false,
           storeLocation: 'Walmart',
         },
       ];
 
-      for (const item of groceryItems) {
-        expoDb.runSync(
-          `
-          INSERT INTO grocery_items (id, list_id, name, quantity, price_per_unit, total_cost, is_purchased, store_location)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          [
-            item.id,
-            item.listId,
-            item.name,
-            item.quantity,
-            item.pricePerUnit,
-            item.totalCost,
-            item.isPurchased,
-            item.storeLocation,
-          ]
-        );
+      await database.insert(schema.groceryItems).values(groceryItemsData);
 
-        // Add price history
-        expoDb.runSync(
-          `
-          INSERT INTO price_history (id, item_id, price, date)
-          VALUES (?, ?, ?, ?)
-        `,
-          [`${item.id}_history_1`, item.id, item.pricePerUnit, '2025-01-01']
-        );
-      }
+      // Add price history
+      const priceHistoryData = [
+        {
+          id: '1_history_1',
+          itemId: '1',
+          price: 3.99,
+          date: '2025-01-01',
+        },
+        {
+          id: '2_history_1',
+          itemId: '2',
+          price: 2.49,
+          date: '2025-01-01',
+        },
+      ];
+
+      await database.insert(schema.priceHistory).values(priceHistoryData);
     }
 
     console.log('Database seeded successfully');
