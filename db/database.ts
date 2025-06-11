@@ -3,6 +3,7 @@ import { openDatabaseSync, openDatabaseAsync } from 'expo-sqlite';
 import { migrate } from 'drizzle-orm/expo-sqlite/migrator';
 import { eq } from 'drizzle-orm';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import * as schema from './schema';
 import migrations from './migrations/migrations';
 
@@ -12,6 +13,13 @@ let db: ReturnType<typeof drizzle>;
 
 const initDb = async () => {
   if (db) return db;
+
+  // Log database path for debugging
+  if (!isWeb) {
+    const dbPath = `${FileSystem.documentDirectory}SQLite/household.db`;
+    console.log('📂 SQLite database location:', dbPath);
+    console.log('💡 You can open this file in TablePlus or any SQLite browser');
+  }
 
   const expoDb = isWeb
     ? await openDatabaseAsync('household.db')
