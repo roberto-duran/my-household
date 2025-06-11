@@ -1,162 +1,244 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  TextInput, 
+import React, { useState } from 'react'
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
   Modal,
   Alert
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { DataProvider, useData, GroceryList, GroceryItem } from '@/contexts/DataContext';
-import Card from '@/components/Card';
-import { Plus, ShoppingCart, MapPin, TrendingUp, CircleCheck as CheckCircle, Circle, CreditCard as Edit3, Trash2 } from 'lucide-react-native';
+} from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import { useDatabase } from '@/contexts/DatabaseContext'
+import type { GroceryList, GroceryItem } from '@/db/schema'
+import Card from '@/components/Card'
+import {
+  Plus,
+  ShoppingCart,
+  MapPin,
+  TrendingUp,
+  CircleCheck as CheckCircle,
+  Circle,
+  CreditCard as Edit3,
+  Trash2
+} from 'lucide-react-native'
 
-function GroceryContent() {
-  const { groceryLists, addGroceryList, updateGroceryList, deleteGroceryList } = useData();
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showListModal, setShowListModal] = useState(false);
-  const [selectedList, setSelectedList] = useState<GroceryList | null>(null);
-  const [editingList, setEditingList] = useState<GroceryList | null>(null);
+function GroceryContent () {
+  const {
+    groceryLists,
+    addGroceryList,
+    updateGroceryList,
+    deleteGroceryList,
+    addGroceryItem,
+    updateGroceryItem,
+    deleteGroceryItem,
+    toggleGroceryItemPurchased
+  } = useDatabase()
+
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showListModal, setShowListModal] = useState(false)
+  const [selectedList, setSelectedList] = useState<
+    (GroceryList & { items: (GroceryItem & { priceHistory: any[] })[] }) | null
+  >(null)
+  const [editingList, setEditingList] = useState<
+    (GroceryList & { items: (GroceryItem & { priceHistory: any[] })[] }) | null
+  >(null)
 
   const [listForm, setListForm] = useState({
     name: '',
-    storeLocation: '',
-  });
+    storeLocation: ''
+  })
 
   const [itemForm, setItemForm] = useState({
     name: '',
     quantity: '1',
-    pricePerUnit: '',
-  });
+    pricePerUnit: ''
+  })
 
-  const [currentItems, setCurrentItems] = useState<Omit<GroceryItem, 'id'>[]>([]);
+  const [currentItems, setCurrentItems] = useState<
+    Array<{
+      name: string
+      quantity: number
+      pricePerUnit: number
+      totalCost: number
+      storeLocation: string
+    }>
+  >([])
 
-  const handleCreateList = () => {
+  const handleCreateList = async () => {
     if (!listForm.name) {
-      Alert.alert('Error', 'Please enter a list name');
-      return;
+      Alert.alert('Error', 'Please enter a list name')
+      return
     }
 
-    const newList: Omit<GroceryList, 'id'> = {
-      name: listForm.name,
-      createdDate: new Date().toISOString(),
-      items: currentItems.map((item, index) => ({
-        ...item,
-        id: (Date.now() + index).toString(),
-        isPurchased: false,
-        storeLocation: listForm.storeLocation,
-        priceHistory: [{ date: new Date().toISOString(), price: item.pricePerUnit }],
-      })),
-      totalCost: currentItems.reduce((sum, item) => sum + item.totalCost, 0),
-    };
+    try {
+      if (editingList) {
+        // Update existing list
+        await updateGroceryList(editingList.id, {
+          name: listForm.name
+        })
 
-    if (editingList) {
-      updateGroceryList(editingList.id, newList);
-    } else {
-      addGroceryList(newList);
+        // Delete existing items and add new ones
+        for (const item of editingList.items) {
+          await deleteGroceryItem(item.id)
+        }
+
+        for (const item of currentItems) {
+          await addGroceryItem({
+            listId: editingList.id,
+            name: item.name,
+            quantity: item.quantity,
+            pricePerUnit: item.pricePerUnit,
+            totalCost: item.totalCost,
+            storeLocation: item.storeLocation || null,
+            isPurchased: false
+          })
+        }
+      } else {
+        // Create new list
+        await addGroceryList({
+          name: listForm.name,
+          totalCost: currentItems.reduce((sum, item) => sum + item.totalCost, 0)
+        })
+
+        // Find the newly created list to get its ID
+        const newList = groceryLists.find(list => list.name === listForm.name)
+        if (newList) {
+          for (const item of currentItems) {
+            await addGroceryItem({
+              listId: newList.id,
+              name: item.name,
+              quantity: item.quantity,
+              pricePerUnit: item.pricePerUnit,
+              totalCost: item.totalCost,
+              storeLocation: item.storeLocation || null,
+              isPurchased: false
+            })
+          }
+        }
+      }
+      resetForm()
+    } catch (error) {
+      console.error('Error creating/updating list:', error)
+      Alert.alert('Error', 'Failed to save list')
     }
-
-    resetForm();
-  };
+  }
 
   const addItemToList = () => {
     if (!itemForm.name || !itemForm.pricePerUnit) {
-      Alert.alert('Error', 'Please fill in item name and price');
-      return;
+      Alert.alert('Error', 'Please fill in item name and price')
+      return
     }
 
-    const quantity = parseInt(itemForm.quantity) || 1;
-    const pricePerUnit = parseFloat(itemForm.pricePerUnit);
-    const totalCost = quantity * pricePerUnit;
+    const quantity = parseInt(itemForm.quantity) || 1
+    const pricePerUnit = parseFloat(itemForm.pricePerUnit)
+    const totalCost = quantity * pricePerUnit
 
-    const newItem: Omit<GroceryItem, 'id'> = {
+    const newItem = {
       name: itemForm.name,
       quantity,
       pricePerUnit,
       totalCost,
-      isPurchased: false,
-      storeLocation: listForm.storeLocation,
-      priceHistory: [],
-    };
+      storeLocation: listForm.storeLocation
+    }
 
-    setCurrentItems([...currentItems, newItem]);
-    setItemForm({ name: '', quantity: '1', pricePerUnit: '' });
-  };
+    setCurrentItems([...currentItems, newItem])
+    setItemForm({ name: '', quantity: '1', pricePerUnit: '' })
+  }
 
   const removeItemFromList = (index: number) => {
-    setCurrentItems(currentItems.filter((_, i) => i !== index));
-  };
+    setCurrentItems(currentItems.filter((_, i) => i !== index))
+  }
 
   const resetForm = () => {
-    setListForm({ name: '', storeLocation: '' });
-    setItemForm({ name: '', quantity: '1', pricePerUnit: '' });
-    setCurrentItems([]);
-    setShowAddModal(false);
-    setEditingList(null);
-  };
+    setListForm({ name: '', storeLocation: '' })
+    setItemForm({ name: '', quantity: '1', pricePerUnit: '' })
+    setCurrentItems([])
+    setShowAddModal(false)
+    setEditingList(null)
+  }
 
-  const openListDetails = (list: GroceryList) => {
-    setSelectedList(list);
-    setShowListModal(true);
-  };
+  const openListDetails = (
+    list: GroceryList & { items: (GroceryItem & { priceHistory: any[] })[] }
+  ) => {
+    setSelectedList(list)
+    setShowListModal(true)
+  }
 
-  const toggleItemPurchased = (listId: string, itemId: string) => {
-    const list = groceryLists.find(l => l.id === listId);
-    if (!list) return;
-
-    const updatedItems = list.items.map(item => 
-      item.id === itemId ? { ...item, isPurchased: !item.isPurchased } : item
-    );
-
-    updateGroceryList(listId, { items: updatedItems });
-    
-    if (selectedList?.id === listId) {
-      setSelectedList({ ...list, items: updatedItems });
+  const handleToggleItemPurchased = async (itemId: string) => {
+    try {
+      await toggleGroceryItemPurchased(itemId)
+      // Update the selected list if it's open
+      if (selectedList) {
+        const updatedList = groceryLists.find(
+          list => list.id === selectedList.id
+        )
+        if (updatedList) {
+          setSelectedList(updatedList)
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling item:', error)
     }
-  };
+  }
 
-  const handleEditList = (list: GroceryList) => {
-    setEditingList(list);
-    setListForm({ name: list.name, storeLocation: list.items[0]?.storeLocation || '' });
-    setCurrentItems(list.items.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      pricePerUnit: item.pricePerUnit,
-      totalCost: item.totalCost,
-      isPurchased: item.isPurchased,
-      storeLocation: item.storeLocation,
-      priceHistory: item.priceHistory,
-    })));
-    setShowAddModal(true);
-  };
+  const handleEditList = (
+    list: GroceryList & { items: (GroceryItem & { priceHistory: any[] })[] }
+  ) => {
+    setEditingList(list)
+    setListForm({
+      name: list.name,
+      storeLocation: list.items[0]?.storeLocation || ''
+    })
+    setCurrentItems(
+      list.items.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        pricePerUnit: item.pricePerUnit,
+        totalCost: item.totalCost,
+        storeLocation: item.storeLocation || ''
+      }))
+    )
+    setShowAddModal(true)
+  }
 
-  const handleDeleteList = (list: GroceryList) => {
+  const handleDeleteList = (
+    list: GroceryList & { items: (GroceryItem & { priceHistory: any[] })[] }
+  ) => {
     Alert.alert(
       'Delete List',
       `Are you sure you want to delete "${list.name}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => deleteGroceryList(list.id) },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteGroceryList(list.id)
+        }
       ]
-    );
-  };
+    )
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Grocery Lists</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-          <Plus size={20} color="#FFFFFF" />
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setShowAddModal(true)}
+        >
+          <Plus size={20} color='#FFFFFF' />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {groceryLists.map((list) => {
-          const completedItems = list.items.filter(item => item.isPurchased).length;
-          const completionPercentage = (completedItems / list.items.length) * 100;
+        {groceryLists.map(list => {
+          const completedItems = list.items.filter(
+            item => item.isPurchased
+          ).length
+          const completionPercentage =
+            (completedItems / list.items.length) * 100
 
           return (
             <Card key={list.id}>
@@ -166,25 +248,30 @@ function GroceryContent() {
                     <Text style={styles.listName}>{list.name}</Text>
                     <View style={styles.listMeta}>
                       <View style={styles.metaItem}>
-                        <MapPin size={12} color="#6B7280" />
+                        <MapPin size={12} color='#6B7280' />
                         <Text style={styles.metaText}>
                           {list.items[0]?.storeLocation || 'No location'}
                         </Text>
                       </View>
                       <View style={styles.metaItem}>
-                        <ShoppingCart size={12} color="#6B7280" />
+                        <ShoppingCart size={12} color='#6B7280' />
                         <Text style={styles.metaText}>
                           {completedItems}/{list.items.length} items
                         </Text>
                       </View>
                     </View>
                   </View>
-                  
+
                   <View style={styles.listStats}>
-                    <Text style={styles.totalCost}>${list.totalCost.toFixed(2)}</Text>
+                    <Text style={styles.totalCost}>
+                      ${(list.totalCost || 0).toFixed(2)}
+                    </Text>
                     <View style={styles.progressBar}>
-                      <View 
-                        style={[styles.progressFill, { width: `${completionPercentage}%` }]} 
+                      <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${completionPercentage}%` }
+                        ]}
                       />
                     </View>
                   </View>
@@ -195,92 +282,109 @@ function GroceryContent() {
                     style={styles.actionButton}
                     onPress={() => handleEditList(list)}
                   >
-                    <Edit3 size={16} color="#2563EB" />
+                    <Edit3 size={16} color='#2563EB' />
                     <Text style={styles.actionText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.actionButton}
                     onPress={() => handleDeleteList(list)}
                   >
-                    <Trash2 size={16} color="#DC2626" />
-                    <Text style={[styles.actionText, { color: '#DC2626' }]}>Delete</Text>
+                    <Trash2 size={16} color='#DC2626' />
+                    <Text style={[styles.actionText, { color: '#DC2626' }]}>
+                      Delete
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             </Card>
-          );
+          )
         })}
 
         {groceryLists.length === 0 && (
           <Card>
             <View style={styles.emptyState}>
-              <ShoppingCart size={48} color="#D1D5DB" />
+              <ShoppingCart size={48} color='#D1D5DB' />
               <Text style={styles.emptyText}>No grocery lists yet</Text>
-              <Text style={styles.emptySubtext}>Create your first shopping list to get started</Text>
+              <Text style={styles.emptySubtext}>
+                Create your first shopping list to get started
+              </Text>
             </View>
           </Card>
         )}
       </ScrollView>
 
       {/* Add/Edit List Modal */}
-      <Modal visible={showAddModal} animationType="slide" transparent>
+      <Modal visible={showAddModal} animationType='slide' transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
               {editingList ? 'Edit List' : 'Create New List'}
             </Text>
-            
+
             <TextInput
               style={styles.input}
-              placeholder="List name"
+              placeholder='List name'
               value={listForm.name}
-              onChangeText={(text) => setListForm({ ...listForm, name: text })}
+              onChangeText={text => setListForm({ ...listForm, name: text })}
             />
-            
+
             <TextInput
               style={styles.input}
-              placeholder="Store location (optional)"
+              placeholder='Store location (optional)'
               value={listForm.storeLocation}
-              onChangeText={(text) => setListForm({ ...listForm, storeLocation: text })}
+              onChangeText={text =>
+                setListForm({ ...listForm, storeLocation: text })
+              }
             />
 
             <Text style={styles.sectionTitle}>Items</Text>
-            
+
             <View style={styles.itemForm}>
               <TextInput
                 style={[styles.input, { flex: 2 }]}
-                placeholder="Item name"
+                placeholder='Item name'
                 value={itemForm.name}
-                onChangeText={(text) => setItemForm({ ...itemForm, name: text })}
+                onChangeText={text => setItemForm({ ...itemForm, name: text })}
               />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="Qty"
+                placeholder='Qty'
                 value={itemForm.quantity}
-                onChangeText={(text) => setItemForm({ ...itemForm, quantity: text })}
-                keyboardType="numeric"
+                onChangeText={text =>
+                  setItemForm({ ...itemForm, quantity: text })
+                }
+                keyboardType='numeric'
               />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="Price"
+                placeholder='Price'
                 value={itemForm.pricePerUnit}
-                onChangeText={(text) => setItemForm({ ...itemForm, pricePerUnit: text })}
-                keyboardType="numeric"
+                onChangeText={text =>
+                  setItemForm({ ...itemForm, pricePerUnit: text })
+                }
+                keyboardType='numeric'
               />
-              <TouchableOpacity style={styles.addItemButton} onPress={addItemToList}>
-                <Plus size={20} color="#FFFFFF" />
+              <TouchableOpacity
+                style={styles.addItemButton}
+                onPress={addItemToList}
+              >
+                <Plus size={20} color='#FFFFFF' />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.itemsList} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.itemsList}
+              showsVerticalScrollIndicator={false}
+            >
               {currentItems.map((item, index) => (
                 <View key={index} style={styles.itemRow}>
                   <Text style={styles.itemName}>{item.name}</Text>
                   <Text style={styles.itemDetails}>
-                    {item.quantity} × ${item.pricePerUnit.toFixed(2)} = ${item.totalCost.toFixed(2)}
+                    {item.quantity} × ${item.pricePerUnit.toFixed(2)} = $
+                    {item.totalCost.toFixed(2)}
                   </Text>
                   <TouchableOpacity onPress={() => removeItemFromList(index)}>
-                    <Trash2 size={16} color="#DC2626" />
+                    <Trash2 size={16} color='#DC2626' />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -290,7 +394,10 @@ function GroceryContent() {
               <TouchableOpacity style={styles.cancelButton} onPress={resetForm}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleCreateList}>
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleCreateList}
+              >
                 <Text style={styles.saveButtonText}>
                   {editingList ? 'Update' : 'Create'} List
                 </Text>
@@ -301,7 +408,7 @@ function GroceryContent() {
       </Modal>
 
       {/* List Details Modal */}
-      <Modal visible={showListModal} animationType="slide" transparent>
+      <Modal visible={showListModal} animationType='slide' transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             {selectedList && (
@@ -314,33 +421,41 @@ function GroceryContent() {
                 </View>
 
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  {selectedList.items.map((item) => (
+                  {selectedList.items.map(item => (
                     <View key={item.id} style={styles.detailItem}>
                       <TouchableOpacity
                         style={styles.itemCheckbox}
-                        onPress={() => toggleItemPurchased(selectedList.id, item.id)}
+                        onPress={() => handleToggleItemPurchased(item.id)}
                       >
                         {item.isPurchased ? (
-                          <CheckCircle size={20} color="#059669" />
+                          <CheckCircle size={20} color='#059669' />
                         ) : (
-                          <Circle size={20} color="#6B7280" />
+                          <Circle size={20} color='#6B7280' />
                         )}
                       </TouchableOpacity>
-                      
+
                       <View style={styles.itemInfo}>
-                        <Text style={[styles.itemName, item.isPurchased && styles.purchasedItem]}>
+                        <Text
+                          style={[
+                            styles.itemName,
+                            item.isPurchased && styles.purchasedItem
+                          ]}
+                        >
                           {item.name}
                         </Text>
                         <Text style={styles.itemPrice}>
-                          {item.quantity} × ${item.pricePerUnit.toFixed(2)} = ${item.totalCost.toFixed(2)}
+                          {item.quantity} × ${item.pricePerUnit.toFixed(2)} = $
+                          {item.totalCost.toFixed(2)}
                         </Text>
                       </View>
                     </View>
                   ))}
-                  
+
                   <View style={styles.totalSection}>
                     <Text style={styles.totalLabel}>Total Cost:</Text>
-                    <Text style={styles.totalAmount}>${selectedList.totalCost.toFixed(2)}</Text>
+                    <Text style={styles.totalAmount}>
+                      ${(selectedList.totalCost || 0).toFixed(2)}
+                    </Text>
                   </View>
                 </ScrollView>
               </>
@@ -349,33 +464,29 @@ function GroceryContent() {
         </View>
       </Modal>
     </SafeAreaView>
-  );
+  )
 }
 
-export default function Grocery() {
-  return (
-    <DataProvider>
-      <GroceryContent />
-    </DataProvider>
-  );
+export default function Grocery () {
+  return <GroceryContent />
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F3F4F6'
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    paddingBottom: 10,
+    paddingBottom: 10
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#111827'
   },
   addButton: {
     backgroundColor: '#059669',
@@ -383,118 +494,118 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 20
   },
   listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 12
   },
   listInfo: {
-    flex: 1,
+    flex: 1
   },
   listName: {
     fontSize: 18,
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 8,
+    marginBottom: 8
   },
   listMeta: {
-    gap: 8,
+    gap: 8
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 4
   },
   metaText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#6B7280'
   },
   listStats: {
     alignItems: 'flex-end',
-    gap: 8,
+    gap: 8
   },
   totalCost: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
+    color: '#111827'
   },
   progressBar: {
     width: 80,
     height: 4,
     backgroundColor: '#E5E7EB',
-    borderRadius: 2,
+    borderRadius: 2
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#059669',
-    borderRadius: 2,
+    borderRadius: 2
   },
   listActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
-    paddingTop: 12,
+    paddingTop: 12
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    padding: 8,
+    padding: 8
   },
   actionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#2563EB',
+    color: '#2563EB'
   },
   emptyState: {
     alignItems: 'center',
-    padding: 40,
+    padding: 40
   },
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#6B7280',
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 8
   },
   emptySubtext: {
     fontSize: 14,
     color: '#9CA3AF',
-    textAlign: 'center',
+    textAlign: 'center'
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-end'
   },
   modalContent: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: '90%',
+    maxHeight: '90%'
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#111827',
     marginBottom: 20,
-    textAlign: 'center',
+    textAlign: 'center'
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#374151',
     marginBottom: 12,
-    marginTop: 16,
+    marginTop: 16
   },
   input: {
     backgroundColor: '#F9FAFB',
@@ -503,13 +614,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E5E7EB'
   },
   itemForm: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 16
   },
   addItemButton: {
     backgroundColor: '#059669',
@@ -517,11 +628,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   itemsList: {
     maxHeight: 200,
-    marginBottom: 20,
+    marginBottom: 20
   },
   itemRow: {
     flexDirection: 'row',
@@ -529,79 +640,79 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     padding: 12,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 8
   },
   itemName: {
     flex: 1,
     fontSize: 14,
     fontWeight: '500',
-    color: '#111827',
+    color: '#111827'
   },
   itemDetails: {
     fontSize: 12,
     color: '#6B7280',
-    marginRight: 12,
+    marginRight: 12
   },
   modalButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 12
   },
   cancelButton: {
     flex: 1,
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
     padding: 16,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#6B7280'
   },
   saveButton: {
     flex: 1,
     backgroundColor: '#059669',
     borderRadius: 8,
     padding: 16,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   saveButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#FFFFFF'
   },
   detailsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 20
   },
   closeButton: {
     fontSize: 24,
     color: '#6B7280',
-    fontWeight: '300',
+    fontWeight: '300'
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F3F4F6'
   },
   itemCheckbox: {
-    marginRight: 12,
+    marginRight: 12
   },
   itemInfo: {
-    flex: 1,
+    flex: 1
   },
   purchasedItem: {
     textDecorationLine: 'line-through',
-    color: '#6B7280',
+    color: '#6B7280'
   },
   itemPrice: {
     fontSize: 12,
     color: '#6B7280',
-    marginTop: 2,
+    marginTop: 2
   },
   totalSection: {
     flexDirection: 'row',
@@ -610,16 +721,16 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     marginTop: 16,
     borderTopWidth: 2,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E5E7EB'
   },
   totalLabel: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111827',
+    color: '#111827'
   },
   totalAmount: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#059669',
-  },
-});
+    color: '#059669'
+  }
+})

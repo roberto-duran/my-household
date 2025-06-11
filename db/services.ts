@@ -1,4 +1,4 @@
-import { eq, desc, sum } from 'drizzle-orm';
+import { eq, desc, sum, and } from 'drizzle-orm';
 import { getDb } from './database';
 import {
   expenses,
@@ -7,19 +7,129 @@ import {
   groceryItems,
   priceHistory,
   financialSettings,
+  monthlySavings,
   type NewExpense,
   type NewBudgetCategory,
   type NewGroceryList,
   type NewGroceryItem,
   type NewPriceHistory,
   type NewFinancialSettings,
+  type NewMonthlySavings,
 } from './schema';
+
+const getCurrentMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${(now.getMonth() + 1)
+    .toString()
+    .padStart(2, '0')}`;
+};
+
+// Monthly Savings Services - Defined first to avoid circular dependencies
+export const monthlySavingsService = {
+  async getByMonth(month: string) {
+    const db = await getDb();
+    const result = await db
+      .select()
+      .from(monthlySavings)
+      .where(eq(monthlySavings.month, month));
+    return result[0] || null;
+  },
+
+  async getAll() {
+    const db = await getDb();
+    return await db
+      .select()
+      .from(monthlySavings)
+      .orderBy(desc(monthlySavings.month));
+  },
+
+  async create(data: Omit<NewMonthlySavings, 'id'>) {
+    const db = await getDb();
+    const id = `${data.month}-${Date.now()}`;
+    const newData = { ...data, id };
+    await db.insert(monthlySavings).values(newData);
+    return await this.getByMonth(data.month);
+  },
+
+  async update(month: string, updates: Partial<NewMonthlySavings>) {
+    const db = await getDb();
+    const updateData = { ...updates, updatedAt: new Date().toISOString() };
+    await db
+      .update(monthlySavings)
+      .set(updateData)
+      .where(eq(monthlySavings.month, month));
+    return await this.getByMonth(month);
+  },
+
+  async getOrCreateForMonth(month: string) {
+    let monthData = await this.getByMonth(month);
+    if (!monthData) {
+      // Get settings directly to avoid circular dependency
+      const db = await getDb();
+      const settings = await db.select().from(financialSettings).limit(1);
+      const settingsData = settings[0];
+
+      monthData = await this.create({
+        month,
+        income: settingsData?.monthlyIncome || 0,
+        savingsGoal: settingsData?.savingsGoal || 0,
+        totalExpenses: 0,
+        totalSaved: 0,
+      });
+    }
+    return monthData;
+  },
+
+  async getSavingsByMonths(limit = 12) {
+    const db = await getDb();
+    return await db
+      .select()
+      .from(monthlySavings)
+      .orderBy(desc(monthlySavings.month))
+      .limit(limit);
+  },
+
+  async updateMonthlyExpenses(month: string) {
+    // This will be properly implemented after expenseService methods are available
+    // For now, just create a placeholder that works
+    const db = await getDb();
+    const result = await db
+      .select({ total: sum(expenses.amount) })
+      .from(expenses)
+      .where(eq(expenses.month, month));
+
+    const totalExpenses = Number(result[0]?.total || 0);
+    const monthData = await this.getOrCreateForMonth(month);
+    const totalSaved = monthData.income - totalExpenses;
+
+    await this.update(month, {
+      totalExpenses,
+      totalSaved: Math.max(0, totalSaved),
+    });
+  },
+
+  async initializeCurrentMonth() {
+    const currentMonth = getCurrentMonth();
+    await this.getOrCreateForMonth(currentMonth);
+    return currentMonth;
+  },
+};
 
 // Expense Services
 export const expenseService = {
   async getAll() {
     const db = await getDb();
     return await db.select().from(expenses).orderBy(desc(expenses.createdAt));
+  },
+
+  async getByMonth(month?: string) {
+    const db = await getDb();
+    const targetMonth = month || getCurrentMonth();
+    return await db
+      .select()
+      .from(expenses)
+      .where(eq(expenses.month, targetMonth))
+      .orderBy(desc(expenses.createdAt));
   },
 
   async getById(id: string) {
@@ -31,21 +141,31 @@ export const expenseService = {
   async create(expense: Omit<NewExpense, 'id'>) {
     const db = await getDb();
     const id = Date.now().toString();
-    const newExpense = { ...expense, id };
+    const month = expense.month || getCurrentMonth();
+    const newExpense = { ...expense, id, month };
     await db.insert(expenses).values(newExpense);
+    await monthlySavingsService.updateMonthlyExpenses(month);
     return await this.getById(id);
   },
 
   async update(id: string, updates: Partial<NewExpense>) {
     const db = await getDb();
     const updateData = { ...updates, updatedAt: new Date().toISOString() };
+    const expense = await this.getById(id);
     await db.update(expenses).set(updateData).where(eq(expenses.id, id));
+    if (expense) {
+      await monthlySavingsService.updateMonthlyExpenses(expense.month);
+    }
     return await this.getById(id);
   },
 
   async delete(id: string) {
     const db = await getDb();
+    const expense = await this.getById(id);
     await db.delete(expenses).where(eq(expenses.id, id));
+    if (expense) {
+      await monthlySavingsService.updateMonthlyExpenses(expense.month);
+    }
   },
 
   async getRecurringExpenses() {
@@ -56,13 +176,42 @@ export const expenseService = {
       .where(eq(expenses.isRecurring, true));
   },
 
-  async getTotalMonthlyExpenses() {
+  async getTotalMonthlyExpenses(month?: string) {
     const db = await getDb();
+    const targetMonth = month || getCurrentMonth();
     const result = await db
       .select({ total: sum(expenses.amount) })
       .from(expenses)
-      .where(eq(expenses.isRecurring, true));
+      .where(eq(expenses.month, targetMonth));
     return Number(result[0]?.total || 0);
+  },
+
+  async createRecurringExpensesForMonth(month: string) {
+    const recurringExpenses = await this.getRecurringExpenses();
+    const existingExpenses = await this.getByMonth(month);
+
+    for (const recurring of recurringExpenses) {
+      const exists = existingExpenses.some(
+        (exp) =>
+          exp.name === recurring.name && exp.category === recurring.category
+      );
+
+      if (!exists && recurring.chargeDay) {
+        const [year, monthNum] = month.split('-').map(Number);
+        const dueDate = new Date(year, monthNum - 1, recurring.chargeDay);
+
+        await this.create({
+          name: recurring.name,
+          amount: recurring.amount,
+          category: recurring.category,
+          dueDate: dueDate.toISOString().split('T')[0],
+          month,
+          chargeDay: recurring.chargeDay,
+          isPaid: false,
+          isRecurring: false, // Monthly instance, not the recurring template
+        });
+      }
+    }
   },
 };
 
@@ -73,6 +222,16 @@ export const budgetCategoryService = {
     return await db
       .select()
       .from(budgetCategories)
+      .orderBy(budgetCategories.name);
+  },
+
+  async getByMonth(month?: string) {
+    const db = await getDb();
+    const targetMonth = month || getCurrentMonth();
+    return await db
+      .select()
+      .from(budgetCategories)
+      .where(eq(budgetCategories.month, targetMonth))
       .orderBy(budgetCategories.name);
   },
 
@@ -87,8 +246,9 @@ export const budgetCategoryService = {
 
   async create(category: Omit<NewBudgetCategory, 'id'>) {
     const db = await getDb();
-    const id = category.name.toLowerCase().replace(/\s+/g, '_');
-    const newCategory = { ...category, id };
+    const month = category.month || getCurrentMonth();
+    const id = `${category.name.toLowerCase().replace(/\s+/g, '_')}_${month}`;
+    const newCategory = { ...category, id, month };
     await db.insert(budgetCategories).values(newCategory);
     return await this.getById(id);
   },
@@ -114,6 +274,25 @@ export const budgetCategoryService = {
       .update(budgetCategories)
       .set({ spent: amount })
       .where(eq(budgetCategories.id, id));
+  },
+
+  async createMonthlyBudgets(month: string, previousMonth?: string) {
+    if (previousMonth) {
+      const previousCategories = await this.getByMonth(previousMonth);
+      for (const category of previousCategories) {
+        const existingCategory = await this.getByMonth(month);
+        const exists = existingCategory.some((c) => c.name === category.name);
+
+        if (!exists) {
+          await this.create({
+            name: category.name,
+            limit: category.limit,
+            spent: 0,
+            month,
+          });
+        }
+      }
+    }
   },
 };
 
@@ -353,14 +532,18 @@ export const financialSettingsService = {
   async getDashboardData() {
     const db = await getDb();
     const settings = await this.getOrCreate();
-    const totalExpenses = await expenseService.getTotalMonthlyExpenses();
+    const currentMonth = getCurrentMonth();
+    const totalExpenses = await expenseService.getTotalMonthlyExpenses(
+      currentMonth
+    );
 
     const budgetResult = await db
       .select({
         totalLimit: sum(budgetCategories.limit),
         totalSpent: sum(budgetCategories.spent),
       })
-      .from(budgetCategories);
+      .from(budgetCategories)
+      .where(eq(budgetCategories.month, currentMonth));
 
     const totalBudgetLimit = Number(budgetResult[0]?.totalLimit || 0);
     const totalBudgetSpent = Number(budgetResult[0]?.totalSpent || 0);
@@ -381,15 +564,16 @@ export const financialSettingsService = {
     };
   },
 
-  async getExpensesByCategory() {
+  async getExpensesByCategory(month?: string) {
     const db = await getDb();
+    const targetMonth = month || getCurrentMonth();
     const result = await db
       .select({
         category: expenses.category,
         total: sum(expenses.amount),
       })
       .from(expenses)
-      .where(eq(expenses.isRecurring, true))
+      .where(eq(expenses.month, targetMonth))
       .groupBy(expenses.category);
 
     return result.map((row) => ({

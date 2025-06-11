@@ -3,6 +3,7 @@ CREATE TABLE `budget_categories` (
 	`name` text NOT NULL,
 	`limit` real NOT NULL,
 	`spent` real DEFAULT 0,
+	`month` text NOT NULL,
 	`created_at` text DEFAULT 'CURRENT_TIMESTAMP',
 	`updated_at` text DEFAULT 'CURRENT_TIMESTAMP'
 );
@@ -14,6 +15,8 @@ CREATE TABLE `expenses` (
 	`amount` real NOT NULL,
 	`category` text NOT NULL,
 	`due_date` text NOT NULL,
+	`month` text NOT NULL,
+	`charge_day` integer,
 	`is_paid` integer DEFAULT false,
 	`is_recurring` integer DEFAULT false,
 	`created_at` text DEFAULT 'CURRENT_TIMESTAMP',
@@ -51,6 +54,18 @@ CREATE TABLE `grocery_lists` (
 	`updated_at` text DEFAULT 'CURRENT_TIMESTAMP'
 );
 --> statement-breakpoint
+CREATE TABLE `monthly_savings` (
+	`id` text PRIMARY KEY NOT NULL,
+	`month` text NOT NULL,
+	`income` real NOT NULL,
+	`total_expenses` real DEFAULT 0,
+	`total_saved` real DEFAULT 0,
+	`savings_goal` real NOT NULL,
+	`created_at` text DEFAULT 'CURRENT_TIMESTAMP',
+	`updated_at` text DEFAULT 'CURRENT_TIMESTAMP'
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `monthly_savings_month_unique` ON `monthly_savings` (`month`);--> statement-breakpoint
 CREATE TABLE `price_history` (
 	`id` text PRIMARY KEY NOT NULL,
 	`item_id` text,

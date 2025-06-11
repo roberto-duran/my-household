@@ -7,6 +7,8 @@ export const expenses = sqliteTable('expenses', {
   amount: real('amount').notNull(),
   category: text('category').notNull(),
   dueDate: text('due_date').notNull(),
+  month: text('month').notNull(), // Format: YYYY-MM
+  chargeDay: integer('charge_day'), // For recurring expenses: day of month (1-31)
   isPaid: integer('is_paid', { mode: 'boolean' }).default(false),
   isRecurring: integer('is_recurring', { mode: 'boolean' }).default(false),
   createdAt: text('created_at').default('CURRENT_TIMESTAMP'),
@@ -18,6 +20,7 @@ export const budgetCategories = sqliteTable('budget_categories', {
   name: text('name').notNull().unique(),
   limit: real('limit').notNull(),
   spent: real('spent').default(0),
+  month: text('month').notNull(), // Format: YYYY-MM
   createdAt: text('created_at').default('CURRENT_TIMESTAMP'),
   updatedAt: text('updated_at').default('CURRENT_TIMESTAMP'),
 });
@@ -53,6 +56,17 @@ export const priceHistory = sqliteTable('price_history', {
   price: real('price').notNull(),
   date: text('date').notNull(),
   createdAt: text('created_at').default('CURRENT_TIMESTAMP'),
+});
+
+export const monthlySavings = sqliteTable('monthly_savings', {
+  id: text('id').primaryKey(),
+  month: text('month').notNull().unique(), // Format: YYYY-MM
+  income: real('income').notNull(),
+  totalExpenses: real('total_expenses').default(0),
+  totalSaved: real('total_saved').default(0),
+  savingsGoal: real('savings_goal').notNull(),
+  createdAt: text('created_at').default('CURRENT_TIMESTAMP'),
+  updatedAt: text('updated_at').default('CURRENT_TIMESTAMP'),
 });
 
 export const financialSettings = sqliteTable('financial_settings', {
@@ -105,3 +119,6 @@ export type NewPriceHistory = typeof priceHistory.$inferInsert;
 
 export type FinancialSettings = typeof financialSettings.$inferSelect;
 export type NewFinancialSettings = typeof financialSettings.$inferInsert;
+
+export type MonthlySavings = typeof monthlySavings.$inferSelect;
+export type NewMonthlySavings = typeof monthlySavings.$inferInsert;

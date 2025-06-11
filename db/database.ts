@@ -11,6 +11,13 @@ const isWeb = Platform.OS === 'web';
 
 let db: ReturnType<typeof drizzle>;
 
+const getCurrentMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${(now.getMonth() + 1)
+    .toString()
+    .padStart(2, '0')}`;
+};
+
 const initDb = async () => {
   if (db) return db;
 
@@ -36,6 +43,27 @@ export const getDb = async () => {
   return db;
 };
 
+export const resetDatabase = async () => {
+  try {
+    console.log('🔄 Resetting database...');
+    const database = await getDb();
+
+    // Drop all tables
+    await database.run(`DROP TABLE IF EXISTS monthly_savings;`);
+    await database.run(`DROP TABLE IF EXISTS price_history;`);
+    await database.run(`DROP TABLE IF EXISTS grocery_items;`);
+    await database.run(`DROP TABLE IF EXISTS grocery_lists;`);
+    await database.run(`DROP TABLE IF EXISTS expenses;`);
+    await database.run(`DROP TABLE IF EXISTS budget_categories;`);
+    await database.run(`DROP TABLE IF EXISTS financial_settings;`);
+
+    console.log('✅ Database reset complete');
+  } catch (error) {
+    console.error('Error resetting database:', error);
+    throw error;
+  }
+};
+
 export const initializeDatabase = async () => {
   try {
     console.info('Initializing database with migrations...');
@@ -44,7 +72,12 @@ export const initializeDatabase = async () => {
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
-    throw error;
+    // If migration fails, try resetting and re-running
+    console.log('🔄 Migration failed, attempting database reset...');
+    await resetDatabase();
+    const database = await getDb();
+    await migrate(database, migrations);
+    console.log('Database initialized successfully after reset');
   }
 };
 
@@ -52,6 +85,7 @@ export const seedDatabase = async () => {
   try {
     console.log('Seeding database...');
     const database = await getDb();
+    const currentMonth = getCurrentMonth();
 
     // Check if financial settings exist
     const existingSettings = await database
@@ -74,14 +108,33 @@ export const seedDatabase = async () => {
       .limit(1);
     if (existingCategories.length === 0) {
       const categories = [
-        { id: 'housing', name: 'Housing', limit: 1500, spent: 1200 },
-        { id: 'utilities', name: 'Utilities', limit: 200, spent: 145 },
-        { id: 'groceries', name: 'Groceries', limit: 400, spent: 280 },
         {
-          id: 'transportation',
+          id: 'housing_' + currentMonth,
+          name: 'Housing',
+          limit: 1500,
+          spent: 1200,
+          month: currentMonth,
+        },
+        {
+          id: 'utilities_' + currentMonth,
+          name: 'Utilities',
+          limit: 200,
+          spent: 145,
+          month: currentMonth,
+        },
+        {
+          id: 'groceries_' + currentMonth,
+          name: 'Groceries',
+          limit: 400,
+          spent: 280,
+          month: currentMonth,
+        },
+        {
+          id: 'transportation_' + currentMonth,
           name: 'Transportation',
           limit: 300,
           spent: 150,
+          month: currentMonth,
         },
       ];
 
@@ -101,6 +154,8 @@ export const seedDatabase = async () => {
           amount: 1200,
           category: 'Housing',
           dueDate: '2025-01-01',
+          month: currentMonth,
+          chargeDay: 1,
           isPaid: true,
           isRecurring: true,
         },
@@ -110,6 +165,8 @@ export const seedDatabase = async () => {
           amount: 85,
           category: 'Utilities',
           dueDate: '2025-01-15',
+          month: currentMonth,
+          chargeDay: 15,
           isPaid: false,
           isRecurring: true,
         },
@@ -119,6 +176,8 @@ export const seedDatabase = async () => {
           amount: 60,
           category: 'Utilities',
           dueDate: '2025-01-20',
+          month: currentMonth,
+          chargeDay: 20,
           isPaid: false,
           isRecurring: true,
         },
@@ -181,6 +240,22 @@ export const seedDatabase = async () => {
       ];
 
       await database.insert(schema.priceHistory).values(priceHistoryData);
+    }
+
+    // Create initial monthly savings record
+    const existingMonthlySavings = await database
+      .select()
+      .from(schema.monthlySavings)
+      .limit(1);
+    if (existingMonthlySavings.length === 0) {
+      await database.insert(schema.monthlySavings).values({
+        id: currentMonth + '_savings',
+        month: currentMonth,
+        income: 4500,
+        totalExpenses: 1345,
+        totalSaved: 3155,
+        savingsGoal: 800,
+      });
     }
 
     console.log('Database seeded successfully');
