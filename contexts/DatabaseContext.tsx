@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import { initializeDatabase, seedDatabase } from '@/db/database';
+import { initializeWebDatabase } from '@/db/database-web';
 import {
   expenseService,
   budgetCategoryService,
@@ -7,6 +9,13 @@ import {
   groceryItemService,
   financialSettingsService,
 } from '@/db/services';
+import {
+  webExpenseService,
+  webBudgetCategoryService,
+  webGroceryListService,
+  webGroceryItemService,
+  webFinancialSettingsService,
+} from '@/db/services-web';
 import type {
   Expense,
   BudgetCategory,
@@ -14,6 +23,15 @@ import type {
   GroceryItem,
   FinancialSettings,
 } from '@/db/schema';
+
+const isWeb = Platform.OS === 'web';
+
+// Platform-aware service selection
+const getExpenseService = () => isWeb ? webExpenseService : expenseService;
+const getBudgetCategoryService = () => isWeb ? webBudgetCategoryService : budgetCategoryService;
+const getGroceryListService = () => isWeb ? webGroceryListService : groceryListService;
+const getGroceryItemService = () => isWeb ? webGroceryItemService : groceryItemService;
+const getFinancialSettingsService = () => isWeb ? webFinancialSettingsService : financialSettingsService;
 
 interface DatabaseContextType {
   // Data
@@ -69,21 +87,29 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const loadData = async () => {
     try {
+      console.log('🔄 Loading data from database...');
       setIsLoading(true);
       
       const [expensesData, categoriesData, listsData, settingsData] = await Promise.all([
-        expenseService.getAll(),
-        budgetCategoryService.getAll(),
-        groceryListService.getAll(),
-        financialSettingsService.getOrCreate(),
+        getExpenseService().getAll(),
+        getBudgetCategoryService().getAll(),
+        getGroceryListService().getAll(),
+        getFinancialSettingsService().getOrCreate(),
       ]);
+      
+      console.log('📊 Data loaded:', {
+        expenses: expensesData.length,
+        categories: categoriesData.length,
+        lists: listsData.length,
+        settings: !!settingsData
+      });
       
       setExpenses(expensesData);
       setBudgetCategories(categoriesData);
       setGroceryLists(listsData);
       setFinancialSettings(settingsData as FinancialSettings);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('❌ Error loading data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -91,11 +117,18 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const initDbAndLoadData = async () => {
     try {
-      await initializeDatabase();
-      await seedDatabase();
+      if (isWeb) {
+        console.log('🌐 Initializing web database (IndexedDB)...');
+        await initializeWebDatabase();
+      } else {
+        console.log('📱 Initializing native database (SQLite)...');
+        await initializeDatabase();
+        await seedDatabase();
+      }
+      console.log('✅ Database ready, loading data...');
       await loadData();
     } catch (error) {
-      console.error('Error initializing database:', error);
+      console.error('❌ Error initializing database:', error);
     }
   };
 
@@ -105,82 +138,171 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   // Expense methods
   const addExpense = async (expense: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await expenseService.create(expense);
-    await loadData();
+    console.log('💰 Adding expense:', expense);
+    try {
+      await getExpenseService().create(expense);
+      console.log('✅ Expense added successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error adding expense:', error);
+    }
   };
 
   const updateExpense = async (id: string, updates: Partial<Expense>) => {
-    await expenseService.update(id, updates);
-    await loadData();
+    console.log('📝 Updating expense:', id, updates);
+    try {
+      await getExpenseService().update(id, updates);
+      console.log('✅ Expense updated successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error updating expense:', error);
+    }
   };
 
   const deleteExpense = async (id: string) => {
-    await expenseService.delete(id);
-    await loadData();
+    console.log('🗑️ Deleting expense:', id);
+    try {
+      await getExpenseService().delete(id);
+      console.log('✅ Expense deleted successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error deleting expense:', error);
+    }
   };
 
   // Budget category methods
   const addBudgetCategory = async (category: Omit<BudgetCategory, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await budgetCategoryService.create(category);
-    await loadData();
+    console.log('📊 Adding budget category:', category);
+    try {
+      await getBudgetCategoryService().create(category);
+      console.log('✅ Budget category added successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error adding budget category:', error);
+    }
   };
 
   const updateBudgetCategory = async (id: string, updates: Partial<BudgetCategory>) => {
-    await budgetCategoryService.update(id, updates);
-    await loadData();
+    console.log('📝 Updating budget category:', id, updates);
+    try {
+      await getBudgetCategoryService().update(id, updates);
+      console.log('✅ Budget category updated successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error updating budget category:', error);
+    }
   };
 
   const deleteBudgetCategory = async (id: string) => {
-    await budgetCategoryService.delete(id);
-    await loadData();
+    console.log('🗑️ Deleting budget category:', id);
+    try {
+      await getBudgetCategoryService().delete(id);
+      console.log('✅ Budget category deleted successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error deleting budget category:', error);
+    }
   };
 
   // Grocery list methods
   const addGroceryList = async (list: Omit<GroceryList, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await groceryListService.create(list);
-    await loadData();
+    console.log('🛒 Adding grocery list:', list);
+    try {
+      await getGroceryListService().create(list);
+      console.log('✅ Grocery list added successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error adding grocery list:', error);
+    }
   };
 
   const updateGroceryList = async (id: string, updates: Partial<GroceryList>) => {
-    await groceryListService.update(id, updates);
-    await loadData();
+    console.log('📝 Updating grocery list:', id, updates);
+    try {
+      await getGroceryListService().update(id, updates);
+      console.log('✅ Grocery list updated successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error updating grocery list:', error);
+    }
   };
 
   const deleteGroceryList = async (id: string) => {
-    await groceryListService.delete(id);
-    await loadData();
+    console.log('🗑️ Deleting grocery list:', id);
+    try {
+      await getGroceryListService().delete(id);
+      console.log('✅ Grocery list deleted successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error deleting grocery list:', error);
+    }
   };
 
   // Grocery item methods
   const addGroceryItem = async (item: Omit<GroceryItem, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await groceryItemService.create(item);
-    await loadData();
+    console.log('🥕 Adding grocery item:', item);
+    try {
+      await getGroceryItemService().create(item);
+      console.log('✅ Grocery item added successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error adding grocery item:', error);
+    }
   };
 
   const updateGroceryItem = async (id: string, updates: Partial<GroceryItem>) => {
-    await groceryItemService.update(id, updates);
-    await loadData();
+    console.log('📝 Updating grocery item:', id, updates);
+    try {
+      await getGroceryItemService().update(id, updates);
+      console.log('✅ Grocery item updated successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error updating grocery item:', error);
+    }
   };
 
   const deleteGroceryItem = async (id: string) => {
-    await groceryItemService.delete(id);
-    await loadData();
+    console.log('🗑️ Deleting grocery item:', id);
+    try {
+      await getGroceryItemService().delete(id);
+      console.log('✅ Grocery item deleted successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error deleting grocery item:', error);
+    }
   };
 
   const toggleGroceryItemPurchased = async (id: string) => {
-    await groceryItemService.togglePurchased(id);
-    await loadData();
+    console.log('✅ Toggling grocery item purchased:', id);
+    try {
+      await getGroceryItemService().togglePurchased(id);
+      console.log('✅ Grocery item toggled successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error toggling grocery item:', error);
+    }
   };
 
   // Financial settings methods
   const updateFinancialSettings = async (updates: Partial<FinancialSettings>) => {
-    await financialSettingsService.update(updates);
-    await loadData();
+    console.log('💼 Updating financial settings:', updates);
+    try {
+      await getFinancialSettingsService().update(updates);
+      console.log('✅ Financial settings updated successfully');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error updating financial settings:', error);
+    }
   };
 
   // Analytics methods
   const getTotalMonthlyExpenses = async () => {
-    return await expenseService.getTotalMonthlyExpenses();
+    try {
+      return await getExpenseService().getTotalMonthlyExpenses();
+    } catch (error) {
+      console.error('❌ Error getting total monthly expenses:', error);
+      return 0;
+    }
   };
 
   const getRemainingBudget = () => {
@@ -196,6 +318,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = async () => {
+    console.log('🔄 Refreshing data...');
     await loadData();
   };
 
